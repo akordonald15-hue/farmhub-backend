@@ -1,6 +1,7 @@
 from .base import *
 
 DEBUG = False
+LOG_FORMAT = "json"
 
 # Allowed hosts MUST come from .env
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS')

@@ -1,0 +1,14 @@
+[run]
+source = .
+omit =
+    */venv/*
+    */migrations/*
+    */tests/*
+    */__pycache__/*
+
+[report]
+show_missing = True
+precision = 2
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.:

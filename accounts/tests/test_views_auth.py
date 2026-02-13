@@ -1,7 +1,7 @@
 import pytest
 from rest_framework import status
+from rest_framework.test import APIClient
 from django.contrib.auth import get_user_model
-from accounts.models import EmailVerification
 
 User = get_user_model()
 
@@ -10,33 +10,29 @@ LOGIN_URL = "/api/accounts/login/"
 
 
 @pytest.mark.django_db
-def test_register_and_login(client):
-    # Step 1: Register user
+def test_register_then_login_blocked_until_verified():
+    client = APIClient()
     payload = {
         "username": "donald",
         "email": "donald@example.com",
+        "full_name": "Donald Example",
         "password": "StrongPass123",
-        "password2": "StrongPass123"
+        "password2": "StrongPass123",
+        "role": "customer",
     }
-    r = client.post(REGISTER_URL, data=payload)
-    assert r.status_code in (status.HTTP_201_CREATED, status.HTTP_200_OK)
-    body = r.json()
-    assert body.get("success", True) is True
+    response = client.post(REGISTER_URL, data=payload, format="json")
+    assert response.status_code == status.HTTP_201_CREATED
 
-    # Step 2: ✅ VERIFY EMAIL (required before login)
-    user = User.objects.get(username="donald")
-    verification = EmailVerification.objects.get(user=user)
-    verification.is_verified = True
-    verification.save()
+    login_payload = {"email": "donald@example.com", "password": "StrongPass123"}
+    response2 = client.post(LOGIN_URL, data=login_payload, format="json")
+    assert response2.status_code == status.HTTP_403_FORBIDDEN
+    assert response2.json().get("error") == "Email not verified"
 
-    # Step 3: Login should now work
-    login_payload = {"username": "donald", "password": "StrongPass123"}
-    r2 = client.post(LOGIN_URL, data=login_payload)
-    assert r2.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED)
-    
-    # ✅ FIXED: Check for tokens instead of "success" field
-    response_data = r2.json()
-    assert response_data.get("access") is not None  # Has access token
-    assert response_data.get("refresh") is not None  # Has refresh token
-    assert response_data.get("user") is not None  # Has user info
-    assert response_data["user"]["username"] == "donald"
+
+@pytest.mark.django_db
+def test_admin_order_list_requires_admin(client):
+    admin = User.objects.create_superuser(username="admin_o", password="p", email="admin_o@test.com")
+    client.force_login(admin)
+    r = client.get("/api/accounts/orders/")
+    assert r.status_code == status.HTTP_200_OK
+

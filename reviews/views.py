@@ -2,6 +2,7 @@ from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
+from accounts.permissions import IsEmailVerified
 
 from .models import Review
 from .serializers import ReviewSerializer
@@ -18,7 +19,7 @@ class AdminThrottle(UserRateThrottle):
 class ReviewViewSet(viewsets.ModelViewSet):
     queryset = Review.objects.all().order_by('-created_at')
     serializer_class = ReviewSerializer
-    permission_classes = [permissions.IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly]
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly, IsEmailVerified, IsOwnerOrReadOnly]
 
     # -----------------------------
     # Add request to serializer context
@@ -55,7 +56,7 @@ class ReviewViewSet(viewsets.ModelViewSet):
     @action(
         detail=True,
         methods=['patch'],
-        permission_classes=[permissions.IsAdminUser],
+        permission_classes=[permissions.IsAdminUser, IsEmailVerified],
         throttle_classes=[AdminThrottle]
     )
     def update_status(self, request, pk=None):

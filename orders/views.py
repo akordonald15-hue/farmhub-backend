@@ -5,6 +5,8 @@ from rest_framework.throttling import UserRateThrottle
 from .models import Order
 from .serializers import OrderSerializer
 import logging
+from accounts.permissions import IsEmailVerified
+from core.logging_utils import log_event
 
 admin_logger = logging.getLogger('admin_actions')
 
@@ -14,12 +16,16 @@ admin_logger = logging.getLogger('admin_actions')
 # ----------------------------
 class IsOwnerOrAdmin(permissions.BasePermission):
     """
+    Allow authenticated users to access the view.
     Allow owners to access their orders.
     Allow staff/admins to access all orders.
     """
-    def has_object_permission(self, request, view, obj):
-        return request.user and (request.user.is_staff or obj.user == request.user)
 
+    def has_permission(self, request, view):
+        return request.user and request.user.is_authenticated
+
+    def has_object_permission(self, request, view, obj):
+        return request.user.is_staff or obj.user == request.user
 
 # ----------------------------
 # Throttle for Admin
@@ -33,13 +39,14 @@ class AdminThrottle(UserRateThrottle):
 # ----------------------------
 class OrderCreateAPIView(generics.CreateAPIView):
     serializer_class = OrderSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, IsEmailVerified]
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         order = serializer.save()  # ✅ Just save()
 
+        log_event("order_events", request, "order_create", "success", user=request.user, extra={"order_id": order.id})
         return Response({
             "success": True,
             "message": "Order created successfully",
@@ -51,7 +58,7 @@ class OrderCreateAPIView(generics.CreateAPIView):
 # ----------------------------
 class OrderViewSet(viewsets.ModelViewSet):
     serializer_class = OrderSerializer
-    permission_classes = [permissions.IsAuthenticated, IsOwnerOrAdmin]
+    permission_classes = [permissions.IsAuthenticated, IsEmailVerified, IsOwnerOrAdmin]
     queryset = Order.objects.all().order_by('-created_at')
 
     def get_queryset(self):
@@ -69,7 +76,7 @@ class OrderViewSet(viewsets.ModelViewSet):
     @action(
         detail=True,
         methods=['patch'],
-        permission_classes=[permissions.IsAdminUser],
+        permission_classes=[permissions.IsAdminUser, IsEmailVerified],
         throttle_classes=[AdminThrottle]
     )
     def update_status(self, request, pk=None):
@@ -78,6 +85,7 @@ class OrderViewSet(viewsets.ModelViewSet):
         new_status = request.data.get('status')
 
         if not new_status:
+            log_event("order_events", request, "order_status_update", "failure", user=request.user, extra={"order_id": order.id})
             return Response(
                 {'error': 'Status field is required.'},
                 status=status.HTTP_400_BAD_REQUEST
@@ -89,6 +97,14 @@ class OrderViewSet(viewsets.ModelViewSet):
         admin_logger.info(
             f"Admin {request.user.username} updated order {order.id} "
             f"status from '{old_status}' to '{new_status}'"
+        )
+        log_event(
+            "order_events",
+            request,
+            "order_status_update",
+            "success",
+            user=request.user,
+            extra={"order_id": order.id, "old_status": old_status, "new_status": new_status},
         )
 
         return Response(
@@ -104,6 +120,7 @@ class OrderViewSet(viewsets.ModelViewSet):
         reference = request.data.get('reference')
 
         if not reference:
+            log_event("order_events", request, "paystack_webhook", "failure")
             return Response(
                 {'error': 'Reference is required.'},
                 status=status.HTTP_400_BAD_REQUEST
@@ -115,11 +132,13 @@ class OrderViewSet(viewsets.ModelViewSet):
             order.status = 'PROCESSING'
             order.save()
 
+            log_event("order_events", request, "paystack_webhook", "success", user=order.user, extra={"order_id": order.id})
             return Response(
                 {'message': 'Order payment verified and updated.'},
                 status=status.HTTP_200_OK
             )
         except Order.DoesNotExist:
+            log_event("order_events", request, "paystack_webhook", "failure")
             return Response(
                 {'error': 'Order not found.'},
                 status=status.HTTP_404_NOT_FOUND

@@ -2,8 +2,8 @@ from decimal import Decimal
 from django.db import transaction
 from rest_framework import serializers
 from .models import Order, OrderItem
-from menu.models import MenuItem
-from menu.serializers import MenuItemSerializer
+from products.models import MenuItem
+from products.serializers import MenuItemSerializer
 
 
 class OrderItemSerializer(serializers.ModelSerializer):

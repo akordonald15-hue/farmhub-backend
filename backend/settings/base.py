@@ -23,9 +23,16 @@ INSTALLED_APPS = [
 
     # Your apps
     'accounts',
-    'menu',
+    'products',
     'orders',
     'reviews',
+    'core',
+    'farmers',  
+    'payments',
+    'reports',  
+    'notifications',
+    'marketplace',
+    'logistics',
 
     # Third-party
     'rest_framework',
@@ -86,6 +93,7 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
@@ -93,9 +101,11 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
-        'rest_framework.permissions.IsAuthenticatedOrReadOnly',
+        'rest_framework.permissions.IsAuthenticated',
+        'accounts.permissions.IsEmailVerified',
     ),
      "DEFAULT_RENDERER_CLASSES": (
         "core.utils.response.StandardJSONRenderer",
@@ -129,12 +139,13 @@ PAYSTACK_SECRET_KEY = env('PAYSTACK_SECRET_KEY', default='')
 PAYSTACK_PUBLIC_KEY = env('PAYSTACK_PUBLIC_KEY', default='')
 PAYSTACK_BASE_URL = 'https://api.paystack.co'
 
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",           # React dev server
-    "https://your-production-domain.com",  # production frontend
-]
+CORS_ALLOWED_ORIGINS = env.list(
+    "CORS_ALLOWED_ORIGINS",
+    default=["http://localhost:3000"],
+)
 
 CORS_ALLOW_CREDENTIALS = True  # allows sending cookies or auth headers
+CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
 # base.py
 
 from datetime import timedelta
@@ -160,6 +171,8 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "1.0.0",
 }
 # Use Redis only in production
+REDIS_URL = env("REDIS_URL", default="redis://127.0.0.1:6379/1")
+
 if DEBUG:
     CACHES = {
         "default": {
@@ -171,10 +184,45 @@ else:
     CACHES = {
         "default": {
             "BACKEND": "django_redis.cache.RedisCache",
-            "LOCATION": "redis://127.0.0.1:6379/1",
+            "LOCATION": REDIS_URL,
             "OPTIONS": {
                 "CLIENT_CLASS": "django_redis.client.DefaultClient",
+                "IGNORE_EXCEPTIONS": True,
             }
         }
     }
 
+
+AUTH_USER_MODEL = "accounts.User"
+
+LOG_FORMAT = env("LOG_FORMAT", default="dev")
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "dev": {
+            "format": "%(levelname)s %(name)s action=%(action)s result=%(result)s user_id=%(user_id)s ip=%(ip)s %(message)s",
+            "defaults": {"action": "-", "result": "-", "user_id": "-", "ip": "-"},
+        },
+        "json": {
+            "format": (
+                '{"timestamp":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s",'
+                '"action":"%(action)s","result":"%(result)s","user_id":"%(user_id)s","ip":"%(ip)s","message":"%(message)s"}'
+            ),
+            "defaults": {"action": "-", "result": "-", "user_id": "-", "ip": "-"},
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "json" if LOG_FORMAT == "json" else "dev",
+        },
+    },
+    "loggers": {
+        "auth_events": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        "order_events": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        "admin_actions": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        "django.request": {"handlers": ["console"], "level": "WARNING", "propagate": True},
+    },
+}

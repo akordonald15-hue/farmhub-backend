@@ -5,12 +5,14 @@ from django.views.decorators.csrf import csrf_exempt
 
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from accounts.permissions import IsEmailVerified
 from rest_framework.response import Response
 from rest_framework import status
 
 from drf_spectacular.utils import extend_schema
 
 from orders.models import Order
+from core.logging_utils import log_event
 from .serializers import (
     InitializePaymentSerializer,
     VerifyPaymentSerializer,
@@ -28,7 +30,7 @@ from .serializers import (
     responses={200: PaymentInitResponseSerializer}
 )
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, IsEmailVerified])
 def initialize_payment(request):
 
     serializer = InitializePaymentSerializer(data=request.data)
@@ -45,14 +47,14 @@ def initialize_payment(request):
     if order.paid:
         return Response({"detail": "Order already paid"}, status=400)
 
-    if not order.items.exists() or order.total <= 0:
+    if not order.items.exists() or order.total_price <= 0:
         return Response({"detail": "Invalid order"}, status=400)
 
     initialize_url = f"{settings.PAYSTACK_BASE_URL}/transaction/initialize"
 
     payload = {
         "email": request.user.email,
-        "amount": int(order.total * 100),
+        "amount": int(order.total_price * 100),
         "currency": "NGN",
         "reference": f"order-{order.id}",
         "metadata": {"order_id": order.id},
@@ -90,7 +92,7 @@ def initialize_payment(request):
     responses={200: PaymentVerifyResponseSerializer}
 )
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, IsEmailVerified])
 def verify_payment(request):
 
     serializer = VerifyPaymentSerializer(data=request.data)
@@ -144,6 +146,7 @@ def paystack_webhook(request):
     signature = request.headers.get("x-paystack-signature")
 
     if not signature:
+        log_event("order_events", request, "paystack_webhook", "failure")
         return Response({"detail": "Missing signature"}, status=400)
 
     body = request.body
@@ -151,6 +154,7 @@ def paystack_webhook(request):
     expected = hmac.new(secret, body, hashlib.sha512).hexdigest()
 
     if not hmac.compare_digest(expected, signature):
+        log_event("order_events", request, "paystack_webhook", "failure")
         return Response({"detail": "Invalid signature"}, status=403)
 
     event = request.data.get("event")
@@ -169,4 +173,5 @@ def paystack_webhook(request):
             except Order.DoesNotExist:
                 pass
 
+    log_event("order_events", request, "paystack_webhook", "success")
     return Response({"status": "ok"})

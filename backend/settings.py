@@ -38,14 +38,22 @@ INSTALLED_APPS = [
 
     # Local apps
     'accounts',
-    'menu',
+    'products',
     'orders',
     'reviews',
+    'core',
+    'farmers',  
+    'payments',
+    'reports',  
+    'notifications',
+    'marketplace',
+    'logistics',
 
     # Third-party
     'rest_framework',
     'cloudinary',
     'cloudinary_storage',
+    'django_filters',
 
     #drf
     "drf_spectacular",
@@ -152,10 +160,14 @@ REST_FRAMEWORK = {
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
-        'rest_framework.permissions.IsAuthenticatedOrReadOnly',
+        'rest_framework.permissions.IsAuthenticated',
+        'accounts.permissions.IsEmailVerified',
     ),
      "DEFAULT_RENDERER_CLASSES": (
-        "core.utils.response.StandardJSONRenderer",
+        "core.utils.response.StandardJSONRenderer",    
+    ),
+    'DEFAULT_FILTER_BACKENDS': (
+        'django_filters.rest_framework.DjangoFilterBackend'
     ),
     "EXCEPTION_HANDLER": "core.exceptions.custom_exception_handler",
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
@@ -201,6 +213,8 @@ LOGGING = {
         },
     },
 }
+AUTH_USER_MODEL = "accounts.User"
+
 SPECTACULAR_SETTINGS = {
     "TITLE": "Dchops API",
     "DESCRIPTION": "API for Dchoops",

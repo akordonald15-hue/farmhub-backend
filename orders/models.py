@@ -1,7 +1,8 @@
 # orders/models.py
 from django.db import models
 from django.contrib.auth import get_user_model
-from menu.models import MenuItem
+from products.models import MenuItem
+from django.conf import settings
 
 User = get_user_model()
 
@@ -14,7 +15,7 @@ class Order(models.Model):
         ('DELIVERED', 'Delivered'),
         ('CANCELLED', 'Cancelled'),
     ]
-    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='orders')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='orders')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')

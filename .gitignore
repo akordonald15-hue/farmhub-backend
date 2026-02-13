@@ -22,6 +22,8 @@ logs/
 
 # Environment variables
 .env
+.env.*
+!.env.example
 
 # VS Code
 .vscode/
@@ -35,3 +37,13 @@ Thumbs.db
 
 # Migrations backup (optional)
 */migrations/__pycache__/
+
+# Test / coverage artifacts
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Logs
+*.log

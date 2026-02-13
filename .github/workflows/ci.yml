@@ -31,7 +31,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-django
+          pip install pytest pytest-django pytest-cov
 
       - name: Run migrations
         env:
@@ -39,5 +39,30 @@ jobs:
         run: |
           python manage.py migrate
 
-      - name: Run tests
-        run: pytest -q
+      - name: Run tests with coverage
+        run: |
+          pytest \
+            --cov=. \
+            --cov=accounts \
+            --cov=orders \
+            --cov=products \
+            --cov=menu \
+            --cov-report=term-missing \
+            --cov-report=xml \
+            --cov-fail-under=90
+
+      - name: Coverage summary (critical apps)
+        run: python tools/coverage_check.py
+
+      - name: Upload coverage.xml artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: error
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.xml
+          fail_ci_if_error: true
