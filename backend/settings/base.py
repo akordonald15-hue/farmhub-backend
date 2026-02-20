@@ -2,15 +2,23 @@ import os
 from pathlib import Path
 import environ
 
-# Initialize environment variables
-env = environ.Env(DEBUG=(bool, False), ENV=(str, "development"))
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
-environ.Env.read_env(os.path.join(BASE_DIR, '.env'))
+
+# Initialize environment variables
+env = environ.Env(
+    DEBUG=(bool, False),
+    ENV=(str, "development")
+)
+
+# Only read .env file if it exists (CRITICAL FIX)
+env_file = os.path.join(BASE_DIR, ".env")
+if os.path.exists(env_file):
+    environ.Env.read_env(env_file)
 
 # Core settings
-SECRET_KEY = env('SECRET_KEY')
-DEBUG = env('DEBUG')
-ENV = env('ENV')
+SECRET_KEY = os.environ.get("SECRET_KEY") or env("SECRET_KEY")
+DEBUG = env("DEBUG")
+ENV = env("ENV")
 
 if ENV == "production" and DEBUG:
     raise RuntimeError("DEBUG must be False when ENV=production")
