@@ -6,6 +6,12 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    env:
+      SECRET_KEY: test-secret-key-for-ci
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/test_db
+      DEBUG: "False"
+      ALLOWED_HOSTS: localhost,127.0.0.1
+
     services:
       postgres:
         image: postgres:15
@@ -14,10 +20,12 @@ jobs:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
         options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+          --health-cmd="pg_isready -U postgres -d test_db"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+        ports:
+          - 5432:5432
 
     steps:
       - uses: actions/checkout@v4
@@ -34,10 +42,7 @@ jobs:
           pip install pytest pytest-django pytest-cov
 
       - name: Run migrations
-        env:
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432/test_db
-        run: |
-          python manage.py migrate
+        run: python manage.py migrate
 
       - name: Run tests with coverage
         run: |
