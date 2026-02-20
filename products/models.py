@@ -15,7 +15,7 @@ class MenuItem(models.Model):
     slug = models.SlugField(max_length=220, unique=True)
     description = models.TextField(blank=True)
     price = models.DecimalField(max_digits=8, decimal_places=2)
-    is_available = models.BooleanField(default=True)
+    is_available = models.BooleanField(default=True, db_index=True)
     image = CloudinaryField('image', blank=True, null=True)  # <-- Updated field
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

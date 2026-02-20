@@ -31,14 +31,3 @@ def test_admin_update_status_requires_status_field(client):
     resp = client.patch(url, {}, content_type="application/json")
     assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
-
-@pytest.mark.django_db
-def test_paystack_webhook_missing_reference(client):
-    resp = client.post("/api/orders/paystack_webhook/", data={}, content_type="application/json")
-    assert resp.status_code == status.HTTP_400_BAD_REQUEST
-
-
-@pytest.mark.django_db
-def test_paystack_webhook_reference_not_found(client):
-    resp = client.post("/api/orders/paystack_webhook/", data={"reference": "missing-ref"}, content_type="application/json")
-    assert resp.status_code == status.HTTP_404_NOT_FOUND

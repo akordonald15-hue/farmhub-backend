@@ -3,13 +3,17 @@ from pathlib import Path
 import environ
 
 # Initialize environment variables
-env = environ.Env(DEBUG=(bool, False))
+env = environ.Env(DEBUG=(bool, False), ENV=(str, "development"))
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 environ.Env.read_env(os.path.join(BASE_DIR, '.env'))
 
 # Core settings
 SECRET_KEY = env('SECRET_KEY')
 DEBUG = env('DEBUG')
+ENV = env('ENV')
+
+if ENV == "production" and DEBUG:
+    raise RuntimeError("DEBUG must be False when ENV=production")
 
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=[])
 
@@ -39,6 +43,7 @@ INSTALLED_APPS = [
     'cloudinary',
     'cloudinary_storage',
     'corsheaders',
+    'rest_framework_simplejwt.token_blacklist',
     
     #drf
     "drf_spectacular",
@@ -47,6 +52,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -60,7 +66,7 @@ ROOT_URLCONF = 'backend.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / "templates"],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -94,13 +100,14 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / "staticfiles"
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # REST Framework
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'accounts.authentication.CookieJWTAuthentication',
         'rest_framework.authentication.SessionAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
@@ -155,15 +162,21 @@ SIMPLE_JWT = {
     "REFRESH_TOKEN_LIFETIME": timedelta(days=5),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
-    "AUTH_COOKIE": "refresh_token",  # the cookie name
-    "AUTH_COOKIE_SECURE": False,     # default, overridden in prod.py
+    "AUTH_COOKIE_SECURE": False,     # overridden in prod.py
     "AUTH_COOKIE_HTTP_ONLY": True,
     "AUTH_COOKIE_PATH": "/",
     "AUTH_COOKIE_SAMESITE": "Lax",
+    "ACCESS_COOKIE_NAME": "access_token",
+    "REFRESH_COOKIE_NAME": "refresh_token",
 }
 # base.py
-EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
-DEFAULT_FROM_EMAIL = 'noreply@dchops.com'
+EMAIL_BACKEND = "sendgrid_backend.SendgridBackend"
+SENDGRID_API_KEY = env("SENDGRID_API_KEY", default="")
+SENDGRID_SANDBOX_MODE_IN_DEBUG = env.bool("SENDGRID_SANDBOX_MODE_IN_DEBUG", default=True)
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="noreply@dchops.com")
+
+if DEBUG and not SENDGRID_API_KEY:
+    EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "Dchops API",

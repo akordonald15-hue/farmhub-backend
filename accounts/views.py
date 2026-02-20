@@ -5,12 +5,16 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.serializers import TokenRefreshSerializer
+from django.template.loader import render_to_string
+from django.utils.html import strip_tags
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework.exceptions import PermissionDenied
 from django.core.mail import send_mail
 from rest_framework.throttling import UserRateThrottle, SimpleRateThrottle
 from django.conf import settings
+from django.middleware.csrf import get_token
 
 import logging
 
@@ -29,7 +33,6 @@ from .serializers import (
     RegistrationSerializer,
     EmailVerificationSerializer,
     ResendOTPSerializer,
-    RefreshTokenSerializer,
 )
 from .permissions import IsEmailVerified
 
@@ -82,6 +85,48 @@ class VerifyOTPThrottle(SimpleRateThrottle):
 
 
 OTP_MAX_ATTEMPTS = 5
+
+
+def _get_cookie_settings():
+    cfg = settings.SIMPLE_JWT
+    return {
+        "secure": cfg.get("AUTH_COOKIE_SECURE", True),
+        "httponly": cfg.get("AUTH_COOKIE_HTTP_ONLY", True),
+        "samesite": cfg.get("AUTH_COOKIE_SAMESITE", "Lax"),
+        "path": cfg.get("AUTH_COOKIE_PATH", "/"),
+    }
+
+
+def _set_auth_cookies(response, access_token, refresh_token=None):
+    cfg = settings.SIMPLE_JWT
+    cookie_settings = _get_cookie_settings()
+    access_name = cfg.get("ACCESS_COOKIE_NAME", "access_token")
+    refresh_name = cfg.get("REFRESH_COOKIE_NAME", "refresh_token")
+    access_max_age = int(cfg["ACCESS_TOKEN_LIFETIME"].total_seconds())
+    refresh_max_age = int(cfg["REFRESH_TOKEN_LIFETIME"].total_seconds())
+
+    response.set_cookie(
+        key=access_name,
+        value=access_token,
+        max_age=access_max_age,
+        **cookie_settings,
+    )
+
+    if refresh_token:
+        response.set_cookie(
+            key=refresh_name,
+            value=refresh_token,
+            max_age=refresh_max_age,
+            **cookie_settings,
+        )
+
+
+def _clear_auth_cookies(response):
+    cfg = settings.SIMPLE_JWT
+    access_name = cfg.get("ACCESS_COOKIE_NAME", "access_token")
+    refresh_name = cfg.get("REFRESH_COOKIE_NAME", "refresh_token")
+    response.delete_cookie(access_name, path=cfg.get("AUTH_COOKIE_PATH", "/"))
+    response.delete_cookie(refresh_name, path=cfg.get("AUTH_COOKIE_PATH", "/"))
 
 
 class VerifiedTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -155,12 +200,18 @@ class RegisterView(generics.CreateAPIView):
                 verification.save(update_fields=["is_verified"])
 
             verification.generate_otp()
-            
+            html_message = render_to_string(
+                "emails/otp.html",
+                {"otp": verification.otp, "user": user},
+            )
+            plain_message = strip_tags(html_message)
+
             send_mail(
                 subject="Your Farmhub Verification Code",
-                message=f"Your verification code is: {verification.otp}\n\nDo not share this code with anyone.",
+                message=plain_message,
                 from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
                 recipient_list=[user.email],
+                html_message=html_message,
                 fail_silently=False,
             )
             log_event("auth_events", request, "otp_send", "success", user=user)
@@ -270,11 +321,18 @@ class ResendOTPView(APIView):
         verification.generate_otp()
 
         try:
+            html_message = render_to_string(
+                "emails/otp.html",
+                {"otp": verification.otp, "user": user},
+            )
+            plain_message = strip_tags(html_message)
+
             send_mail(
                 subject="Your Farmhub Verification Code",
-                message=f"Your verification code is: {verification.otp}\n\nDo not share this code with anyone.",
+                message=plain_message,
                 from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
                 recipient_list=[user.email],
+                html_message=html_message,
                 fail_silently=False,
             )
             admin_logger.info(f"OTP resent to user {user.id}: {user.email}")
@@ -329,16 +387,21 @@ class LoginView(APIView):
         admin_logger.info(f"User {user.id} logged in successfully")
         log_event("auth_events", request, "login", "success", user=user)
 
-        return Response({
-            "access": str(access),
-            "refresh": str(refresh),
-            "user": {
-                "id": user.id,
-                "email": user.email,
-                "username": user.username,
-                "role": user.role
-            }
-        }, status=status.HTTP_200_OK)
+        response = Response(
+            {
+                "message": "Login successful",
+                "user": {
+                    "id": user.id,
+                    "email": user.email,
+                    "username": user.username,
+                    "role": user.role,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+        get_token(request)
+        _set_auth_cookies(response, str(access), str(refresh))
+        return response
 
 
 # -------------------------------------------
@@ -346,13 +409,13 @@ class LoginView(APIView):
 # -------------------------------------------
 class RefreshTokenView(APIView):
     permission_classes = [AllowAny]
-    serializer_class = RefreshTokenSerializer
 
     def post(self, request):
-        serializer = self.serializer_class(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        refresh_cookie_name = settings.SIMPLE_JWT.get("REFRESH_COOKIE_NAME", "refresh_token")
+        refresh_token = request.COOKIES.get(refresh_cookie_name)
 
-        refresh_token = serializer.validated_data['refresh_token']
+        if not refresh_token:
+            return Response({"detail": "Refresh token missing"}, status=status.HTTP_401_UNAUTHORIZED)
 
         try:
             token = RefreshToken(refresh_token)
@@ -361,9 +424,19 @@ class RefreshTokenView(APIView):
             if not user or not user.is_verified:
                 log_event("auth_events", request, "token_refresh", "failure", user=user)
                 raise PermissionDenied("Email not verified")
-            admin_logger.info(f"Token refreshed successfully")
+
+            serializer = TokenRefreshSerializer(data={"refresh": refresh_token})
+            serializer.is_valid(raise_exception=True)
+            data = serializer.validated_data
+            access = data.get("access")
+            new_refresh = data.get("refresh")
+
+            response = Response({"message": "Token refreshed"}, status=status.HTTP_200_OK)
+            _set_auth_cookies(response, access, new_refresh)
+
+            admin_logger.info("Token refreshed successfully")
             log_event("auth_events", request, "token_refresh", "success", user=user)
-            return Response({"access": str(token.access_token)}, status=status.HTTP_200_OK)
+            return response
         except PermissionDenied:
             raise
         except Exception as e:
@@ -391,7 +464,22 @@ class LogoutView(APIView):
     serializer_class = LogoutSerializer
 
     def post(self, request):
+        refresh_cookie_name = settings.SIMPLE_JWT.get("REFRESH_COOKIE_NAME", "refresh_token")
+        refresh_token = request.COOKIES.get(refresh_cookie_name)
+
+        if not refresh_token:
+            return Response({"detail": "Refresh token missing"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            token = RefreshToken(refresh_token)
+            token.blacklist()
+        except Exception as e:
+            admin_logger.warning(f"Logout failed to blacklist token: {str(e)}")
+            return Response({"detail": "Invalid refresh token"}, status=status.HTTP_400_BAD_REQUEST)
+
         admin_logger.info(f"User {request.user.id} logged out")
         log_event("auth_events", request, "logout", "success", user=request.user)
-        return Response({'detail': 'Logged out successfully'}, status=status.HTTP_200_OK)
+        response = Response({'detail': 'Logged out successfully'}, status=status.HTTP_200_OK)
+        _clear_auth_cookies(response)
+        return response
 # ...existing code...

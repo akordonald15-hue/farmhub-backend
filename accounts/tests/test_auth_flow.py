@@ -204,16 +204,50 @@ def test_verified_user_can_login_and_access_protected_endpoints():
         format="json",
     )
     assert login_response.status_code == status.HTTP_200_OK
-    access = login_response.json().get("access")
-    assert access
-
-    client.credentials(HTTP_AUTHORIZATION=f"Bearer {access}")
+    assert "access" not in login_response.json()
+    assert "refresh" not in login_response.json()
+    client.cookies["access_token"] = login_response.cookies["access_token"].value
+    client.cookies["refresh_token"] = login_response.cookies["refresh_token"].value
 
     me_response = client.get(ME_URL)
     assert me_response.status_code == status.HTTP_200_OK
 
     orders_response = client.get(ORDERS_URL)
     assert orders_response.status_code == status.HTTP_200_OK
+
+
+@pytest.mark.django_db
+def test_logout_blacklists_refresh_token():
+    client = APIClient()
+    user = register_user(client, email="logout2@example.com", username="logout2")
+    verification = EmailVerification.objects.get(user=user)
+
+    client.post(
+        VERIFY_URL,
+        data={"email": user.email, "otp": verification.otp},
+        format="json",
+    )
+
+    login_response = client.post(
+        LOGIN_URL,
+        data={"email": user.email, "password": "StrongPass123"},
+        format="json",
+    )
+    refresh_value = login_response.cookies["refresh_token"].value
+    client.cookies["access_token"] = login_response.cookies["access_token"].value
+    client.cookies["refresh_token"] = refresh_value
+    client.cookies["csrftoken"] = login_response.cookies["csrftoken"].value
+
+    logout_response = client.post(
+        "/api/accounts/logout/",
+        format="json",
+        HTTP_X_CSRFTOKEN=login_response.cookies["csrftoken"].value,
+    )
+    assert logout_response.status_code == status.HTTP_200_OK
+
+    client.cookies["refresh_token"] = refresh_value
+    refresh_response = client.post("/api/accounts/refresh-token/", format="json")
+    assert refresh_response.status_code == status.HTTP_401_UNAUTHORIZED
 
 
 @pytest.mark.django_db

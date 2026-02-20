@@ -9,8 +9,6 @@ from .views import (
     RefreshTokenView,
     LogoutView,
     OrderListAPIView,
-    VerifiedTokenObtainPairView,
-    VerifiedTokenRefreshView,
 )
 
 urlpatterns = [
@@ -20,10 +18,6 @@ urlpatterns = [
 
     # custom login (uses authenticate + EmailVerification)
     path("login/", LoginView.as_view(), name="login"),
-
-    # standard simplejwt endpoints with verified check
-    path("token/", VerifiedTokenObtainPairView.as_view(), name="token_obtain_pair"),
-    path("token/refresh/", VerifiedTokenRefreshView.as_view(), name="token_refresh"),
 
     # custom refresh endpoint (keeps existing custom behaviour)
     path("refresh-token/", RefreshTokenView.as_view(), name="refresh-token"),

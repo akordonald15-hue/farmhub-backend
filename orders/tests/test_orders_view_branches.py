@@ -32,16 +32,27 @@ def test_order_create_endpoint(client):
 
 
 @pytest.mark.django_db
-def test_paystack_webhook_success(client):
-    user = User.objects.create_user(username="order_pay_user", password="p")
-    order = Order.objects.create(user=user, total_price=100, paystack_reference="ref-123")
-    OrderItem.objects.create(order=order, menu_item=None, quantity=1, price=100)
+def test_order_list_query_count_stable(client, django_assert_num_queries):
+    user = User.objects.create_user(username="order_list_user", password="p")
+    user.is_verified = True
+    user.save(update_fields=["is_verified"])
+    client.force_login(user)
 
-    resp = client.post("/api/orders/paystack_webhook/", data={"reference": "ref-123"}, content_type="application/json")
+    category = Category.objects.create(name="Wraps4", slug="wraps4")
+    menu_item = MenuItem.objects.create(
+        category=category,
+        name="Chicken Wrap 4",
+        slug="chicken-wrap-4",
+        description="Tasty",
+        price=1200,
+        is_available=True,
+    )
+    order = Order.objects.create(user=user, total_price=1200)
+    OrderItem.objects.create(order=order, menu_item=menu_item, quantity=1, price=menu_item.price)
+
+    with django_assert_num_queries(6):
+        resp = client.get("/api/orders/")
     assert resp.status_code == status.HTTP_200_OK
-    order.refresh_from_db()
-    assert order.paid is True
-    assert order.status == "PROCESSING"
 
 
 @pytest.mark.django_db

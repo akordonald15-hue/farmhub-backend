@@ -128,36 +128,8 @@ def test_order_list_forbidden_for_non_admin(client):
 
 @pytest.mark.django_db
 def test_refresh_token_invalid_returns_401(client):
-    r = client.post(REFRESH_URL, data={"refresh_token": "bad"}, format="json")
+    r = client.post(REFRESH_URL, format="json")
     assert r.status_code == status.HTTP_401_UNAUTHORIZED
-
-
-@pytest.mark.django_db
-def test_verified_token_obtain_pair_unverified():
-    user = User.objects.create_user(email="pair@example.com", password="StrongPass123", full_name="Pair")
-    client = APIClient()
-    r = client.post("/api/accounts/token/", data={"email": user.email, "password": "StrongPass123"}, format="json")
-    assert r.status_code == status.HTTP_403_FORBIDDEN
-
-
-@pytest.mark.django_db
-def test_verified_token_refresh_blocks_unverified():
-    user = User.objects.create_user(email="pair2@example.com", password="StrongPass123", full_name="Pair2")
-    refresh = RefreshToken.for_user(user)
-    client = APIClient()
-    r = client.post("/api/accounts/token/refresh/", data={"refresh": str(refresh)}, format="json")
-    assert r.status_code == status.HTTP_403_FORBIDDEN
-
-
-@pytest.mark.django_db
-def test_verified_token_refresh_success():
-    user = User.objects.create_user(email="pair3@example.com", password="StrongPass123", full_name="Pair3")
-    user.is_verified = True
-    user.save(update_fields=["is_verified"])
-    refresh = RefreshToken.for_user(user)
-    client = APIClient()
-    r = client.post("/api/accounts/token/refresh/", data={"refresh": str(refresh)}, format="json")
-    assert r.status_code == status.HTTP_200_OK
 
 
 @pytest.mark.django_db
@@ -167,8 +139,12 @@ def test_custom_refresh_token_success():
     user.save(update_fields=["is_verified"])
     refresh = RefreshToken.for_user(user)
     client = APIClient()
-    r = client.post(REFRESH_URL, data={"refresh_token": str(refresh)}, format="json")
+    client.cookies["refresh_token"] = str(refresh)
+    r = client.post(REFRESH_URL, format="json")
     assert r.status_code == status.HTTP_200_OK
+    assert "access" not in r.json()
+    assert "refresh" not in r.json()
+    assert "access_token" in r.cookies
 
 
 @pytest.mark.django_db
@@ -176,8 +152,11 @@ def test_logout_success(client):
     user = User.objects.create_user(email="logout@example.com", password="StrongPass123", full_name="Logout")
     user.is_verified = True
     user.save(update_fields=["is_verified"])
-    client.force_login(user)
-    r = client.post("/api/accounts/logout/")
+    login = client.post(LOGIN_URL, data={"email": user.email, "password": "StrongPass123"}, format="json")
+    client.cookies["access_token"] = login.cookies["access_token"].value
+    client.cookies["refresh_token"] = login.cookies["refresh_token"].value
+    client.cookies["csrftoken"] = login.cookies["csrftoken"].value
+    r = client.post("/api/accounts/logout/", format="json", HTTP_X_CSRFTOKEN=login.cookies["csrftoken"].value)
     assert r.status_code == status.HTTP_200_OK
 
 
@@ -186,5 +165,6 @@ def test_refresh_token_rejected_for_unverified_user():
     user = User.objects.create_user(email="unverified@example.com", password="StrongPass123", full_name="Unverified")
     token = RefreshToken.for_user(user)
     client = APIClient()
-    r = client.post(REFRESH_URL, data={"refresh_token": str(token)}, format="json")
+    client.cookies["refresh_token"] = str(token)
+    r = client.post(REFRESH_URL, format="json")
     assert r.status_code == status.HTTP_403_FORBIDDEN

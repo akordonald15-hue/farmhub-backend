@@ -59,13 +59,13 @@ class OrderCreateAPIView(generics.CreateAPIView):
 class OrderViewSet(viewsets.ModelViewSet):
     serializer_class = OrderSerializer
     permission_classes = [permissions.IsAuthenticated, IsEmailVerified, IsOwnerOrAdmin]
-    queryset = Order.objects.all().order_by('-created_at')
+    queryset = Order.objects.select_related("user").prefetch_related("items__menu_item").order_by('-created_at')
 
     def get_queryset(self):
         user = self.request.user
         if user.is_staff:
-            return Order.objects.all().order_by('-created_at')
-        return Order.objects.filter(user=user).order_by('-created_at')
+            return Order.objects.select_related("user").prefetch_related("items__menu_item").order_by('-created_at')
+        return Order.objects.select_related("user").prefetch_related("items__menu_item").filter(user=user).order_by('-created_at')
 
     def perform_create(self, serializer):
         serializer.save()  # ✅ Just save()
@@ -112,34 +112,3 @@ class OrderViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK
         )
 
-    # ----------------------------
-    # Paystack Webhook
-    # ----------------------------
-    @action(detail=False, methods=['post'], permission_classes=[permissions.AllowAny])
-    def paystack_webhook(self, request):
-        reference = request.data.get('reference')
-
-        if not reference:
-            log_event("order_events", request, "paystack_webhook", "failure")
-            return Response(
-                {'error': 'Reference is required.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        try:
-            order = Order.objects.get(paystack_reference=reference)
-            order.paid = True
-            order.status = 'PROCESSING'
-            order.save()
-
-            log_event("order_events", request, "paystack_webhook", "success", user=order.user, extra={"order_id": order.id})
-            return Response(
-                {'message': 'Order payment verified and updated.'},
-                status=status.HTTP_200_OK
-            )
-        except Order.DoesNotExist:
-            log_event("order_events", request, "paystack_webhook", "failure")
-            return Response(
-                {'error': 'Order not found.'},
-                status=status.HTTP_404_NOT_FOUND
-            )

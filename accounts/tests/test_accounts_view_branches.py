@@ -65,6 +65,28 @@ def test_resend_otp_send_mail_failure(client, monkeypatch):
 
 
 @pytest.mark.django_db
+def test_register_triggers_email_send(client, monkeypatch):
+    called = {"value": False}
+
+    def fake_send(*args, **kwargs):
+        called["value"] = True
+        return 1
+
+    monkeypatch.setattr("accounts.views.send_mail", fake_send)
+    payload = {
+        "email": "register_send@example.com",
+        "password": "StrongPass123",
+        "password2": "StrongPass123",
+        "full_name": "Register Send",
+        "username": "register_send",
+        "role": "customer",
+    }
+    r = client.post("/api/accounts/register/", data=payload)
+    assert r.status_code == 201
+    assert called["value"] is True
+
+
+@pytest.mark.django_db
 def test_register_resets_verified_flag(client, monkeypatch):
     def noop_send(*args, **kwargs):
         return 1

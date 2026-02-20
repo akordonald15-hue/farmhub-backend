@@ -21,9 +21,3 @@ def test_admin_update_status_requires_status_field(client):
     r = client.patch(f"/api/orders/{order.id}/update_status/", {}, content_type="application/json")
     assert r.status_code == status.HTTP_400_BAD_REQUEST
 
-
-@pytest.mark.django_db
-def test_paystack_webhook_missing_reference(client):
-    r = client.post("/api/orders/paystack_webhook/", data={}, format="json")
-    assert r.status_code == status.HTTP_400_BAD_REQUEST
-    assert r.json().get("error") == "Reference is required."

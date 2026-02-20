@@ -6,6 +6,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+ENV = os.getenv("ENV", "development")
+
+if ENV == "production":
+    raise RuntimeError("Use backend.settings.prod in production.")
 
 # ===========================
 # SECURITY & SECRETS
